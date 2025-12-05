@@ -1,0 +1,63 @@
+name: Automatically unzip ZIPs into games/
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  unzip-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source branch (main)
+        uses: actions/checkout@v3
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up git identity
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+      - name: Check if games/ already exists
+        run: |
+          if [ -d "games" ]; then
+            echo "games/ directory already exists. Exiting workflow."
+            exit 0
+          fi
+
+      - name: Unzip all ZIPs into games/<zip-name>
+        run: |
+          set -euo pipefail
+          mkdir -p games
+          found_any=false
+          while IFS= read -r -d '' file; do
+            found_any=true
+            folder_name="$(basename "$file" .zip)"
+            unzip -o "$file" -d "games/$folder_name"
+          done < <(find . -maxdepth 1 -type f -name '*.zip' -print0 || true)
+          if [ "$found_any" = false ]; then
+            echo "No ZIP files found at repo root. If your ZIPs are in subfolders, adjust the find command."
+          fi
+
+      - name: Delete ZIP files after extraction
+        run: |
+          find . -type f -name '*.zip' -delete
+
+      - name: Commit and push changes to main (if any)
+        run: |
+          set -euo pipefail
+          git add games
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Unzip and publish game to games/"
+            git push origin main
+          fi
